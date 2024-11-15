@@ -12,6 +12,7 @@ import training.ecommerce.model.User;
 @Service
 public class JwtService {
     private static final String USERNAME_KEY = "username";
+    private static final String EMAIL_KEY = "email";
     @Value("${jwt.secret}")
     private String secret;
     @Value("${jwt.issuer}")
@@ -30,6 +31,14 @@ public class JwtService {
         return JWT.create()
                 .withIssuer(issuer)
                 .withClaim(USERNAME_KEY, user.getUsername())
+                .withExpiresAt(new java.util.Date(System.currentTimeMillis() + expirationInMinutes * 60 * 1000))
+                .sign(algorithm);
+    }
+
+    public String generateVerificationToken(User user) {
+        return JWT.create()
+                .withIssuer(issuer)
+                .withClaim(EMAIL_KEY, user.getEmail())
                 .withExpiresAt(new java.util.Date(System.currentTimeMillis() + expirationInMinutes * 60 * 1000))
                 .sign(algorithm);
     }
