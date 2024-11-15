@@ -1,68 +1,145 @@
 package training.ecommerce.services;
 
 import org.springframework.stereotype.Service;
-
+import org.springframework.transaction.annotation.Transactional;
 import training.ecommerce.api.request.LoginRequest;
 import training.ecommerce.api.request.RegistrationRequest;
+import training.ecommerce.exception.EmailFailureExpectation;
 import training.ecommerce.exception.UserAlreadyExistsException;
-import training.ecommerce.repository.UserRepository;
+import training.ecommerce.exception.UserNotVerifiedException;
 import training.ecommerce.model.User;
+import training.ecommerce.model.VerificationToken;
+import training.ecommerce.repository.UserRepository;
+import training.ecommerce.repository.VerificationTokenRepository;
+
+import java.sql.Timestamp;
 
 @Service
 public class UserService {
 
     private final UserRepository userRepository;
+    private final VerificationTokenRepository verificationTokenRepository;
     private final EncryptionService encryptionService;
     private final JwtService jwtService;
-    
-    public UserService(UserRepository userRepository, EncryptionService encryptionService, JwtService jwtService) {
+    private final EmailService emailService;
+
+    public UserService(
+            UserRepository userRepository,
+            VerificationTokenRepository verificationTokenRepository,
+            EncryptionService encryptionService,
+            JwtService jwtService,
+            EmailService emailService) {
         this.userRepository = userRepository;
+        this.verificationTokenRepository = verificationTokenRepository;
         this.encryptionService = encryptionService;
         this.jwtService = jwtService;
+        this.emailService = emailService;
     }
 
-    public User register(RegistrationRequest request) {
-        validateRequest(request);
-    
+    @Transactional
+    public void register(RegistrationRequest request) throws EmailFailureExpectation, UserAlreadyExistsException {
+        validateRegistrationRequest(request);
+
         User user = createUserFromRequest(request);
-    
-        return userRepository.save(user);
+        userRepository.save(user);
+
+        createAndSendVerificationToken(user);
     }
 
-    public String login(LoginRequest login) {
-        User user = userRepository.findByUsername(login.getUsername())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-    
-        if (!encryptionService.matches(login.getPassword(), user.getPassword())) {
-            throw new IllegalArgumentException("Invalid password");
-        }
-    
+    public String login(LoginRequest loginRequest) throws UserNotVerifiedException, EmailFailureExpectation {
+        User user = findUserByUsername(loginRequest.getUsername());
+        validatePassword(loginRequest.getPassword(), user.getPassword());
+        validateUserEmailVerification(user);
+
         return jwtService.generate(user);
     }
-    
-    private void validateRequest(RegistrationRequest request) {
-        userRepository.findByUsername(request.getUsername())
-                .ifPresent(user -> {
-                    throw new UserAlreadyExistsException("User with username " + request.getUsername() + " already exists");
-                });
-    
-        userRepository.findByEmail(request.getEmail())
-                .ifPresent(user -> {
-                    throw new UserAlreadyExistsException("User with email " + request.getEmail() + " already exists");
-                });
-    
+
+    @Transactional
+    public boolean verify(String token) {
+        VerificationToken verificationToken = findValidVerificationToken(token);
+
+        User user = verificationToken.getUser();
+        if (user.isEmailVerified()) {
+            throw new IllegalArgumentException("User is already verified");
+        }
+
+        user.setEmailVerified(true);
+        userRepository.save(user);
+
+        verificationTokenRepository.deleteByUser(user);
+
+        return true;
+    }
+
+    // Private helper methods
+
+    private void validateRegistrationRequest(RegistrationRequest request) {
+        if (userRepository.findByUsername(request.getUsername()).isPresent()) {
+            throw new UserAlreadyExistsException("Username is already taken");
+        }
+
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new UserAlreadyExistsException("Email is already in use");
+        }
+
         if (!request.getPassword().equals(request.getConfirmPassword())) {
             throw new IllegalArgumentException("Passwords do not match");
         }
     }
-    
+
     private User createUserFromRequest(RegistrationRequest request) {
-        User user = new User();
-        user.setUsername(request.getUsername());
-        user.setFirstName(request.getFirstName());
-        user.setLastName(request.getLastName());
-        user.setEmail(request.getEmail());
-        user.setPassword(encryptionService.encrypt(request.getPassword()));
-        return user;
+        return new User(
+                request.getUsername(),
+                encryptionService.encrypt(request.getPassword()),
+                request.getEmail(),
+                request.getFirstName(),
+                request.getLastName()
+        );
+    }
+
+    private VerificationToken createAndSendVerificationToken(User user) throws EmailFailureExpectation {
+        VerificationToken token = createVerificationToken(user);
+        verificationTokenRepository.save(token);
+        emailService.sendVerificationEmail(token);
+        return token;
+    }
+
+    private VerificationToken createVerificationToken(User user) {
+        return new VerificationToken(
+                jwtService.generateVerificationToken(user),
+                user,
+                new Timestamp(System.currentTimeMillis()),
+                new Timestamp(System.currentTimeMillis() + 3600000)
+        );
+    }
+
+    private void validatePassword(String rawPassword, String encodedPassword) {
+        if (!encryptionService.matches(rawPassword, encodedPassword)) {
+            throw new IllegalArgumentException("Invalid username or password");
+        }
+    }
+
+    private void validateUserEmailVerification(User user) throws UserNotVerifiedException, EmailFailureExpectation {
+        if (!user.isEmailVerified()) {
+            boolean shouldResendVerification = user.getVerificationTokens().isEmpty() ||
+                    user.getVerificationTokens().getFirst().isExpired();
+
+            if (shouldResendVerification) {
+                VerificationToken verificationToken = createAndSendVerificationToken(user);
+                verificationTokenRepository.save(verificationToken);
+            }
+
+            throw new UserNotVerifiedException("User has not verified their email", true);
+        }
+    }
+
+    private User findUserByUsername(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid username or password"));
+    }
+
+    private VerificationToken findValidVerificationToken(String token) {
+        return verificationTokenRepository.findByToken(token)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired token"));
     }
 }
