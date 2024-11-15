@@ -50,4 +50,15 @@ public class User {
     public boolean isEmailVerified() {
         return emailVerified;
     }
+
+    public User(String username, String password, String email, String firstName, String lastName) {
+        this.username = username;
+        this.password = password;
+        this.email = email;
+        this.firstName = firstName;
+        this.lastName = lastName;
+    }
+
+    public User() {
+    }
 }
