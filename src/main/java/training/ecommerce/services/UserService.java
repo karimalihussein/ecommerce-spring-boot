@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional;
 import training.ecommerce.api.request.LoginRequest;
 import training.ecommerce.api.request.RegistrationRequest;
 import training.ecommerce.exception.EmailFailureExpectation;
+import training.ecommerce.exception.PasswordNotMatchException;
 import training.ecommerce.exception.UserAlreadyExistsException;
 import training.ecommerce.exception.UserNotVerifiedException;
 import training.ecommerce.model.User;
@@ -83,7 +84,7 @@ public class UserService {
         }
 
         if (!request.getPassword().equals(request.getConfirmPassword())) {
-            throw new IllegalArgumentException("Passwords do not match");
+            throw new PasswordNotMatchException("Password and confirm password do not match");
         }
     }
 
