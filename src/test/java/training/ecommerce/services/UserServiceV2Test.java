@@ -1,25 +1,19 @@
 package training.ecommerce.services;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.icegreen.greenmail.util.ServerSetupTest;
-
 import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import training.ecommerce.api.request.LoginRequest;
 import training.ecommerce.api.request.RegistrationRequest;
 import training.ecommerce.exception.PasswordNotMatchException;
 import training.ecommerce.exception.UserAlreadyExistsException;
-
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.extension.RegisterExtension;
-import org.junit.jupiter.api.Test;
-import jakarta.mail.Message;
-import jakarta.mail.MessagingException;
-
-import static org.awaitility.Awaitility.await;
-import java.util.concurrent.TimeUnit;
+import training.ecommerce.exception.UserNotVerifiedException;
 
 @SpringBootTest
 public class UserServiceV2Test {
@@ -35,30 +29,63 @@ public class UserServiceV2Test {
     @Test
     @Transactional
     public void testRegisterUser() {
-        RegistrationRequest body = new RegistrationRequest();
-        body.setEmail("UserServiceV2Test$testRegisterUser@junit.com");
-        body.setPassword("MySuperSecretPassword");
-        body.setConfirmPassword("password"); // Intentionally wrong to trigger exception
-        body.setFirstName("John");
-        body.setLastName("Doe");
-        body.setUsername("user1");
+        RegistrationRequest request = new RegistrationRequest();
+        request.setEmail("UserServiceV2Test$testRegisterUser@junit.com");
+        request.setPassword("MySuperSecretPassword");
+        request.setConfirmPassword("password"); // Intentionally wrong to trigger exception
+        request.setFirstName("John");
+        request.setLastName("Doe");
+        request.setUsername("user1");
 
-        Assertions.assertThrows(UserAlreadyExistsException.class, () -> userService.register(body),
+        // Test for existing username
+        Assertions.assertThrows(UserAlreadyExistsException.class, () -> userService.register(request),
                 "User should not be registered because the username is already in use.");
 
-        body.setUsername("UserServiceV2Test$testRegisterUser");
-        body.setEmail("user1@gmail.com");
-
-        Assertions.assertThrows(UserAlreadyExistsException.class, () -> userService.register(body),
+        // Test for existing email
+        request.setUsername("UserServiceV2Test$testRegisterUser");
+        request.setEmail("user1@gmail.com");
+        Assertions.assertThrows(UserAlreadyExistsException.class, () -> userService.register(request),
                 "User should not be registered because the email is already in use.");
 
-        body.setEmail("UserServiceV2Test$testRegisterUser@junit.com");
-
-        Assertions.assertThrows(PasswordNotMatchException.class, () -> userService.register(body),
+        // Test for password mismatch
+        request.setEmail("UserServiceV2Test$testRegisterUser@junit.com");
+        Assertions.assertThrows(PasswordNotMatchException.class, () -> userService.register(request),
                 "User should not be registered because the password does not match.");
 
-        body.setConfirmPassword("MySuperSecretPassword");
+        // Successful registration
+        request.setConfirmPassword("MySuperSecretPassword");
+        Assertions.assertDoesNotThrow(() -> userService.register(request),
+                "User should be registered successfully.");
+    }
 
-        Assertions.assertDoesNotThrow(() -> userService.register(body), "User should be registered successfully.");
+    @Test
+    @Transactional
+    public void testLogin() {
+        LoginRequest loginRequest = new LoginRequest();
+        loginRequest.setUsername("usernotfound");
+        loginRequest.setPassword("password");
+
+        // Test for invalid username
+        Assertions.assertThrows(IllegalArgumentException.class, () -> userService.login(loginRequest),
+                "User should not be found");
+
+        // Test for unverified user
+        loginRequest.setUsername("user2");
+        loginRequest.setPassword("securePassword123");
+        Assertions.assertThrows(UserNotVerifiedException.class, () -> userService.login(loginRequest),
+                "User should be verified");
+
+        // Successful login
+        loginRequest.setUsername("user1");
+        Assertions.assertDoesNotThrow(() -> userService.login(loginRequest),
+                "User should be logged in successfully.");
+    }
+
+    @Test
+    @Transactional
+    public void testVerify() {
+        // Test for invalid token
+        Assertions.assertThrows(IllegalArgumentException.class, () -> userService.verify("invalidToken"),
+                "Token should be invalid");
     }
 }
