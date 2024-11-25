@@ -26,7 +26,7 @@ public class AuthenticationController {
     public ResponseEntity<String> register(@Valid @RequestBody RegistrationRequest request) {
         try {
             userService.register(request);
-            return ResponseEntity.ok("Registration successful");
+            return ResponseEntity.created(null).body("User registered successfully.");
         } catch (UserAlreadyExistsException e) {
             return buildErrorResponse(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (EmailFailureExpectation e) {
