@@ -22,7 +22,7 @@ public class WebSecurityConfig {
             .csrf(csrf -> csrf.disable()) // Disable CSRF protection
             .cors(cors -> cors.disable()) // Disable CORS for testing
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**").permitAll() // Allow unauthenticated access to auth endpoints
+                .requestMatchers("/api/auth/**", "/api/products").permitAll() // Allow unauthenticated access to auth endpoints
                 .anyRequest().authenticated() // Require authentication for all other requests
             )
             .addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class); // Add JWT filter
